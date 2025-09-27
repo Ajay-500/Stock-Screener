@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FTSE 250 Value & Quality Screener</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- NEW: Pyodide to run Python in the browser -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a1e2b;
+            color: #e0e0e0;
+        }
+        .card {
+            background-color: #2c3241;
+            border: 1px solid #3a4153;
+        }
+        .form-input, .form-select {
+            background-color: #1a1e2b;
+            border: 1px solid #3a4153;
+            color: #e0e0e0;
+        }
+        .form-input:focus, .form-select:focus {
+            border-color: #00a8ff;
+            box-shadow: 0 0 0 2px rgba(0, 168, 255, 0.5);
+            outline: none;
+        }
+        .action-button {
+            background-color: #00a8ff;
+            color: #ffffff;
+            font-weight: 600;
+        }
+        .action-button:hover {
+            background-color: #0095e0;
+        }
+        .action-button:disabled {
+            background-color: #4a5568;
+            cursor: not-allowed;
+        }
+        .secondary-button {
+            background-color: #4a5568;
+            color: #ffffff;
+            font-weight: 600;
+        }
+        .secondary-button:hover {
+            background-color: #2d3748;
+        }
+        .loader {
+            border-top-color: #00a8ff;
+            animation: spin 1s linear infinite;
+        }
+        .table-header {
+            background-color: #3a4153;
+        }
+        .sortable-header {
+            cursor: pointer;
+            user-select: none;
+        }
+        .sortable-header:hover {
+            color: #ffffff;
+        }
+        .table-row-hover:hover {
+             background-color: #3a4153;
+        }
+        .sector-dropdown {
+            position: relative;
+        }
+        .sector-select-box {
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 0.375rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .sector-checkboxes {
+            position: absolute;
+            background-color: #2c3241;
+            border: 1px solid #3a4153;
+            border-radius: 0.375rem;
+            z-index: 10;
+            max-height: 200px;
+            overflow-y: auto;
+            width: 100%;
+        }
+        .sector-checkboxes label {
+            display: block;
+            padding: 0.5rem;
+            cursor: pointer;
+        }
+        .sector-checkboxes label:hover {
+            background-color: #3a4153;
+        }
+        .sector-checkboxes input {
+            margin-right: 0.5rem;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="pt-8">
+
+    <div class="container mx-auto p-4 sm:p-6 md:p-8 max-w-7xl">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl sm:text-4xl font-bold text-white">FTSE 250 Value Stock Screener</h1>
+            <p class="text-gray-400 mt-2">An interactive tool for identifying potentially undervalued quality companies from the FTSE 250 index.</p>
+        </header>
+
+        <main>
+            <!-- Criteria Selection Card -->
+            <div class="card p-6 rounded-xl shadow-lg mb-8">
+                <h2 class="text-xl font-semibold mb-4 border-b border-gray-600 pb-2 text-white">Screening Criteria</h2>
+                <div class="flex flex-col gap-8">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400">Sectors</label>
+                        <div class="sector-dropdown mt-1">
+                            <div id="sector-select-box" class="form-input sector-select-box">
+                                <span id="sector-select-text">Select sectors...</span>
+                                <span>&#9662;</span>
+                            </div>
+                            <div id="sector-checkboxes" class="hidden sector-checkboxes">
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2">Filter by one or more industry sectors. Leave blank to include all.</p>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
+                        <div>
+                            <label for="pe-ratio" class="block text-sm font-medium text-gray-400">Max P/E Ratio</label>
+                            <input type="number" id="pe-ratio" value="20" class="form-input mt-1 block w-full rounded-md shadow-sm sm:text-sm p-2">
+                            <p class="text-xs text-gray-500 mt-2">The market average is often 15-20.</p>
+                        </div>
+                        <div>
+                            <label for="pb-ratio" class="block text-sm font-medium text-gray-400">Max P/B Ratio</label>
+                            <input type="number" id="pb-ratio" value="1.5" step="0.1" class="form-input mt-1 block w-full rounded-md shadow-sm sm:text-sm p-2">
+                            <p class="text-xs text-gray-500 mt-2">Under 1 is a classic value signal.</p>
+                        </div>
+                        <div>
+                            <label for="de-ratio" class="block text-sm font-medium text-gray-400">Max Debt/Equity (%)</label>
+                            <input type="number" id="de-ratio" value="50" class="form-input mt-1 block w-full rounded-md shadow-sm sm:text-sm p-2">
+                             <p class="text-xs text-gray-500 mt-2">Under 50% suggests a healthy balance sheet.</p>
+                        </div>
+                        <div>
+                            <label for="roe" class="block text-sm font-medium text-gray-400">Min Return on Equity (%)</label>
+                            <input type="number" id="roe" value="15" class="form-input mt-1 block w-full rounded-md shadow-sm sm:text-sm p-2">
+                            <p class="text-xs text-gray-500 mt-2">Above 15% often indicates a high-quality business.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-8 text-center flex justify-center items-center space-x-4">
+                    <button id="run-screener" class="action-button py-2 px-6 rounded-lg shadow-md transition duration-150 ease-in-out" disabled>
+                        <span id="run-screener-text">Loading Python...</span>
+                    </button>
+                    <button id="export-csv" class="hidden secondary-button py-2 px-6 rounded-lg shadow-md transition duration-150 ease-in-out">
+                        Export as CSV
+                    </button>
+                </div>
+            </div>
+
+            <!-- Results Section -->
+            <div id="results-container" class="card p-6 rounded-xl shadow-lg min-h-[300px] flex items-center justify-center">
+                <div id="initial-message" class="text-center text-gray-500">
+                    <p>Adjust your criteria above and click "Run Screener" to begin.</p>
+                </div>
+                <div id="loader" class="hidden text-center">
+                    <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-600 h-12 w-12 mx-auto mb-4"></div>
+                    <p class="text-gray-400 font-medium">Screening all 250 companies...</p>
+                </div>
+                <div id="results-output" class="hidden w-full">
+                    <p id="results-summary" class="text-lg font-semibold mb-4 text-white"></p>
+                    <div class="overflow-x-auto max-h-[500px]">
+                        <table class="min-w-full divide-y divide-gray-600">
+                            <thead class="table-header sticky top-0">
+                                <tr>
+                                    <th data-sort-key="ticker" class="sortable-header px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                                        <div class="flex items-center"><span>Ticker</span><span class="ml-2"></span></div>
+                                    </th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Company Name</th>
+                                    <th data-sort-key="pe" class="sortable-header px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">
+                                        <div class="flex items-center justify-end"><span>P/E Ratio</span><span class="ml-2"></span></div>
+                                    </th>
+                                    <th data-sort-key="pb" class="sortable-header px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">
+                                        <div class="flex items-center justify-end"><span>P/B Ratio</span><span class="ml-2"></span></div>
+                                    </th>
+                                    <th data-sort-key="de" class="sortable-header px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">
+                                        <div class="flex items-center justify-end"><span>Debt/Equity (%)</span><span class="ml-2"></span></div>
+                                    </th>
+                                    <th data-sort-key="roe" class="sortable-header px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">
+                                        <div class="flex items-center justify-end"><span>ROE (%)</span><span class="ml-2"></span></div>
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody id="results-table-body" class="divide-y divide-gray-600">
+                            </tbody>
+                        </table>
+                    </div>
+                     <p class="text-xs text-gray-500 mt-4 text-center">
+                        <strong>Disclaimer:</strong> This tool uses a consistent, simulated dataset to demonstrate the screening logic. Data simulation last updated on 25th September 2025.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Chart Section -->
+            <div id="chart-container" class="hidden card p-6 rounded-xl shadow-lg mt-8">
+                 <div class="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-4 sm:gap-0">
+                    <h2 class="text-xl font-semibold text-white">Graph results:</h2>
+                    <div>
+                        <label for="chart-metric" class="text-sm font-medium text-gray-400 mr-2">Chart Metric:</label>
+                        <select id="chart-metric" class="form-select rounded-md shadow-sm sm:text-sm p-2">
+                            <option value="pe">P/E Ratio</option>
+                            <option value="pb">P/B Ratio</option>
+                            <option value="de">Debt/Equity (%)</option>
+                            <option value="roe" selected>ROE (%)</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="python-chart-container" class="relative h-[400px] flex justify-center items-center">
+                    <!-- Python-generated chart will be injected here -->
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <script>
+        // --- Pre-generated, consistent dataset for all 250 companies ---
+        const FTSE250_DATA = [
+            { ticker: "3IN.L", name: "3i Infrastructure", pe: 24.23, pb: 2.14, de: 15.67, roe: 9.8, sector: "Financials" },
+            { ticker: "888.L", name: "888 Holdings", pe: 15.88, pb: 1.23, de: 68.41, roe: 18.5, sector: "Consumer Discretionary" },
+            { ticker: "AAF.L", name: "Airtel Africa", pe: 8.45, pb: 0.88, de: 45.12, roe: 22.1, sector: "Telecommunications" },
+            { ticker: "AGR.L", name: "Assura", pe: 33.12, pb: 1.05, de: 33.98, roe: 5.4, sector: "Real Estate" },
+            { ticker: "AHT.L", name: "Ashtead Group", pe: 18.91, pb: 3.51, de: 120.45, roe: 25.6, sector: "Industrials" },
+            { ticker: "AJB.L", name: "AJ Bell", pe: 28.77, pb: 4.11, de: 5.33, roe: 35.2, sector: "Financials" },
+            { ticker: "ANTO.L", name: "Antofagasta", pe: 14.53, pb: 1.83, de: 25.72, roe: 12.9, sector: "Basic Materials" },
+            { ticker: "APAX.L", name: "Apax Global Alpha", pe: 6.93, pb: 0.76, de: 11.41, roe: 16.2, sector: "Financials" },
+            { ticker: "ASL.L", name: "abrdn SLI Gbl Incm Tst", pe: 19.45, pb: 0.99, de: 8.99, roe: 8.1, sector: "Financials" },
+            { ticker: "AU.L", name: "Alliance Trust", pe: 21.03, pb: 0.95, de: 7.62, roe: 7.9, sector: "Financials" },
+            { ticker: "AVV.L", name: "Aveva Group", pe: 41.50, pb: 3.88, de: 29.81, roe: 11.3, sector: "Technology" },
+            { ticker: "AZN.L", name: "AstraZeneca", pe: 35.62, pb: 4.25, de: 88.04, roe: 19.8, sector: "Healthcare" },
+            { ticker: "BA.L", name: "BAE Systems", pe: 17.82, pb: 2.55, de: 75.43, roe: 18.2, sector: "Industrials" },
+            { ticker: "BAB.L", name: "Babcock International", pe: 9.33, pb: 0.65, de: 98.21, roe: -5.7, sector: "Industrials" },
+            { ticker: "BARC.L", name: "Barclays", pe: 6.78, pb: 0.45, de: 145.11, roe: 7.2, sector: "Financials" },
+            { ticker: "BBOX.L", name: "Tritax Big Box REIT", pe: 25.43, pb: 1.33, de: 40.21, roe: 6.8, sector: "Real Estate" },
+            { ticker: "BCG.L", name: "Baillie Gifford Japan Trust", pe: 29.11, pb: 1.55, de: 3.14, roe: 9.3, sector: "Financials" },
+            { ticker: "BCPT.L", name: "BMO Commercial Property Trust", pe: 18.22, pb: 0.82, de: 38.92, roe: 4.1, sector: "Real Estate" },
+            { ticker: "BDEV.L", name: "Barratt Developments", pe: 10.15, pb: 1.15, de: 1.02, roe: 15.1, sector: "Consumer Discretionary" },
+            { ticker: "BEZ.L", name: "Beazley", pe: 12.34, pb: 1.98, de: 22.84, roe: 14.8, sector: "Financials" },
+            { ticker: "BGFD.L", name: "Baillie Gifford US Growth Trust", pe: 38.99, pb: 1.87, de: 4.76, roe: 10.1, sector: "Financials" },
+            { ticker: "BGS.L", name: "Baillie Gifford Shin Nippon", pe: 31.42, pb: 1.63, de: 2.19, roe: 11.2, sector: "Financials" },
+            { ticker: "BHMG.L", name: "BH Macro", pe: 11.89, pb: 1.01, de: 0.00, roe: 9.5, sector: "Financials" },
+            { ticker: "BHP.L", name: "BHP Group", pe: 9.99, pb: 2.21, de: 55.32, roe: 30.1, sector: "Basic Materials" },
+            { ticker: "BIF.L", name: "Bluefield Solar Income Fund", pe: 16.54, pb: 1.12, de: 42.11, roe: 7.3, sector: "Utilities" },
+            { ticker: "BIPS.L", name: "abrdn Private Equity Opp Tst", pe: 7.32, pb: 0.71, de: 18.45, roe: 12.5, sector: "Financials" },
+            { ticker: "BKG.L", name: "Berkeley Group Holdings", pe: 13.83, pb: 1.76, de: 20.11, roe: 16.8, sector: "Consumer Discretionary" },
+            { ticker: "BLND.L", name: "British Land", pe: 22.65, pb: 0.53, de: 65.93, roe: 2.9, sector: "Real Estate" },
+            { ticker: "BME.L", name: "B&M European Value Retail", pe: 19.55, pb: 3.12, de: 99.54, roe: 40.1, sector: "Consumer Discretionary" },
+            { ticker: "BNC.L", name: "BlackRock World Mining Trust", pe: 8.76, pb: 1.08, de: 10.34, roe: 15.3, sector: "Basic Materials" },
+            { ticker: "BNKR.L", name: "Bankers Investment Trust", pe: 23.01, pb: 1.02, de: 9.87, roe: 6.9, sector: "Financials" },
+            { ticker: "BNZL.L", name: "Bunzl", pe: 24.32, pb: 4.01, de: 110.23, roe: 21.2, sector: "Industrials" },
+            { ticker: "BOY.L", name: "Bodycote", pe: 16.73, pb: 1.54, de: 30.87, roe: 9.8, sector: "Industrials" },
+            { ticker: "BP.L", name: "BP", pe: 7.02, pb: 1.21, de: 85.34, roe: 18.5, sector: "Energy" },
+            { ticker: "BRBY.L", name: "Burberry Group", pe: 20.11, pb: 4.22, de: 78.43, roe: 28.1, sector: "Consumer Discretionary" },
+            { ticker: "BRW.L", name: "Brewin Dolphin Holdings", pe: 15.65, pb: 2.33, de: 5.65, roe: 17.4, sector: "Financials" },
+            { ticker: "BT.A.L", name: "BT Group", pe: 8.12, pb: 1.11, de: 135.87, roe: 11.5, sector: "Telecommunications" },
+            { ticker: "BVIC.L", name: "Britvic", pe: 18.93, pb: 3.87, de: 140.21, roe: 23.4, sector: "Consumer Staples" },
+            { ticker: "BWY.L", name: "Bellway", pe: 9.87, pb: 1.03, de: 2.34, roe: 14.2, sector: "Consumer Discretionary" },
+            { ticker: "CAL.L", name: "Capital & Counties Properties", pe: 25.11, pb: 0.63, de: 28.98, roe: 3.1, sector: "Real Estate" },
+            { ticker: "CARD.L", name: "Card Factory", pe: 11.02, pb: 2.11, de: 111.98, roe: 15.6, sector: "Consumer Discretionary" },
+            { ticker: "CCL.L", name: "Carnival", pe: 15.34, pb: 1.25, de: 148.92, roe: 8.9, sector: "Consumer Discretionary" },
+            { ticker: "CEY.L", name: "Centamin", pe: 13.92, pb: 0.92, de: 1.43, roe: 6.8, sector: "Basic Materials" },
+            { ticker: "CINE.L", name: "Cineworld Group", pe: 5.23, pb: 0.51, de: 149.32, roe: -15.2, sector: "Consumer Discretionary" },
+            { ticker: "CKN.L", name: "Clarkson", pe: 20.32, pb: 2.87, de: 25.32, roe: 16.1, sector: "Industrials" },
+            { ticker: "CLDN.L", name: "Caledonia Investments", pe: 7.89, pb: 0.81, de: 12.32, roe: 10.5, sector: "Financials" },
+            { ticker: "CNA.L", name: "Centrica", pe: 9.01, pb: 1.53, de: 123.45, roe: 12.3, sector: "Utilities" },
+            { ticker: "COB.L", name: "Cobham", pe: 22.34, pb: 2.01, de: 65.23, roe: 9.1, sector: "Industrials" },
+            { ticker: "COST.L", name: "Costain Group", pe: 10.43, pb: 0.78, de: 118.93, roe: -8.2, sector: "Industrials" },
+            { ticker: "CPI.L", name: "Capita", pe: 6.32, pb: 0.49, de: 142.11, roe: -22.1, sector: "Industrials" },
+            { ticker: "CPG.L", name: "Compass Group", pe: 26.54, pb: 4.32, de: 98.23, roe: 25.8, sector: "Consumer Discretionary" },
+            { ticker: "CRDA.L", name: "Croda International", pe: 33.21, pb: 4.12, de: 54.21, roe: 18.9, sector: "Basic Materials" },
+            { ticker: "CRH.L", name: "CRH", pe: 15.83, pb: 1.99, de: 45.32, roe: 13.5, sector: "Industrials" },
+            { ticker: "CRST.L", name: "Crest Nicholson Holdings", pe: 8.94, pb: 0.89, de: 15.32, roe: 10.2, sector: "Consumer Discretionary" },
+            { ticker: "CTY.L", name: "City of London Investment Trust", pe: 17.54, pb: 1.01, de: 8.32, roe: 7.8, sector: "Financials" },
+            { ticker: "CURY.L", name: "Currys", pe: 7.93, pb: 0.72, de: 95.32, roe: 5.1, sector: "Consumer Discretionary" },
+            { ticker: "CV.L", name: "Convatec Group", pe: 29.34, pb: 2.83, de: 73.12, roe: 10.8, sector: "Healthcare" },
+            { ticker: "DARK.L", name: "Darktrace", pe: 44.52, pb: 4.49, de: 12.32, roe: 12.1, sector: "Technology" },
+            { ticker: "DCC.L", name: "DCC", pe: 14.83, pb: 2.11, de: 68.32, roe: 16.2, sector: "Industrials" },
+            { ticker: "DGE.L", name: "Diageo", pe: 25.32, pb: 4.43, de: 110.32, roe: 29.3, sector: "Consumer Staples" },
+            { ticker: "DIAL.L", name: "Dialight", pe: 18.23, pb: 1.34, de: 42.11, roe: 7.5, sector: "Industrials" },
+            { ticker: "DJAN.L", name: "abrdn Japan Investment Trust", pe: 19.83, pb: 1.11, de: 6.32, roe: 8.2, sector: "Financials" },
+            { ticker: "DLG.L", name: "Direct Line Insurance Group", pe: 11.43, pb: 1.23, de: 25.32, roe: 11.9, sector: "Financials" },
+            { ticker: "DNLM.L", name: "Dunelm Group", pe: 21.32, pb: 4.02, de: 88.32, roe: 38.1, sector: "Consumer Discretionary" },
+            { ticker: "DOM.L", name: "Domino's Pizza Group", pe: 23.43, pb: 4.11, de: 132.32, roe: -55.2, sector: "Consumer Discretionary" },
+            { ticker: "DRX.L", name: "Drax Group", pe: 8.32, pb: 1.43, de: 128.32, roe: 15.8, sector: "Utilities" },
+            { ticker: "ECM.L", name: "Electrocomponents", pe: 20.11, pb: 3.11, de: 45.32, roe: 17.3, sector: "Industrials" },
+            { ticker: "EDIN.L", name: "Edinburgh Investment Trust", pe: 16.92, pb: 0.98, de: 9.11, roe: 8.1, sector: "Financials" },
+            { ticker: "EMG.L", name: "Man Group", pe: 10.21, pb: 1.83, de: 15.32, roe: 20.3, sector: "Financials" },
+            { ticker: "ENT.L", name: "Entain", pe: 19.82, pb: 2.32, de: 112.32, roe: 12.4, sector: "Consumer Discretionary" },
+            { ticker: "ERM.L", name: "Euromoney Institutional Investor", pe: 25.32, pb: 2.89, de: 35.32, roe: 11.8, sector: "Consumer Discretionary" },
+            { ticker: "ESNT.L", name: "Essentra", pe: 14.32, pb: 1.21, de: 55.32, roe: 8.5, sector: "Industrials" },
+            { ticker: "EXPN.L", name: "Experian", pe: 35.11, pb: 4.32, de: 95.32, roe: 28.9, sector: "Industrials" },
+            { ticker: "EZJ.L", name: "EasyJet", pe: 12.32, pb: 1.54, de: 138.32, roe: 10.3, sector: "Consumer Discretionary" },
+            { ticker: "FCIT.L", name: "F&C Investment Trust", pe: 20.32, pb: 1.00, de: 8.11, roe: 7.9, sector: "Financials" },
+            { ticker: "FERG.L", name: "Ferguson", pe: 17.83, pb: 3.54, de: 75.32, roe: 23.1, sector: "Industrials" },
+            { ticker: "FEVR.L", name: "Fever-Tree Drinks", pe: 38.32, pb: 4.21, de: 2.32, roe: 25.4, sector: "Consumer Staples" },
+            { ticker: "FGT.L", name: "Finsbury Growth & Income Trust", pe: 22.32, pb: 1.12, de: 5.32, roe: 8.8, sector: "Financials" },
+            { ticker: "FLTR.L", name: "Flutter Entertainment", pe: 28.32, pb: 2.99, de: 85.32, roe: 9.7, sector: "Consumer Discretionary" },
+            { ticker: "FRES.L", name: "Fresnillo", pe: 18.32, pb: 1.83, de: 18.32, roe: 10.5, sector: "Basic Materials" },
+            { ticker: "GCP.L", name: "GCP Infrastructure Investments", pe: 15.32, pb: 1.03, de: 28.32, roe: 6.9, sector: "Financials" },
+            { ticker: "GEN.L", name: "Genus", pe: 31.32, pb: 3.12, de: 48.32, roe: 11.2, sector: "Healthcare" },
+            { ticker: "GFS.L", name: "G4S", pe: 13.32, pb: 2.32, de: 128.32, roe: 15.1, sector: "Industrials" },
+            { ticker: "GFTU.L", name: "Grafton Group", pe: 12.32, pb: 1.43, de: 22.32, roe: 12.8, sector: "Industrials" },
+            { ticker: "GKN.L", name: "GKN", pe: 11.32, pb: 1.23, de: 88.32, roe: 10.9, sector: "Industrials" },
+            { ticker: "GLEN.L", name: "Glencore", pe: 6.32, pb: 1.32, de: 78.32, roe: 21.3, sector: "Basic Materials" },
+            { ticker: "GNC.L", name: "Greencore Group", pe: 9.32, pb: 0.98, de: 108.32, roe: 8.7, sector: "Consumer Staples" },
+            { ticker: "GREG.L", name: "Greggs", pe: 25.32, pb: 4.13, de: 15.32, roe: 22.4, sector: "Consumer Discretionary" },
+            { ticker: "GSK.L", name: "GlaxoSmithKline", pe: 14.32, pb: 3.83, de: 138.32, roe: 35.1, sector: "Healthcare" },
+            { ticker: "GVC.L", name: "GVC Holdings", pe: 17.32, pb: 2.13, de: 118.32, roe: 12.9, sector: "Consumer Discretionary" },
+            { ticker: "HAS.L", name: "Hays", pe: 16.32, pb: 2.83, de: 5.32, roe: 19.8, sector: "Industrials" },
+            { ticker: "HGT.L", name: "HgCapital Trust", pe: 9.32, pb: 1.23, de: 12.32, roe: 14.1, sector: "Financials" },
+            { ticker: "HL.L", name: "Hargreaves Lansdown", pe: 23.32, pb: 4.23, de: 1.32, roe: 45.3, sector: "Financials" },
+            { ticker: "HLMA.L", name: "Halma", pe: 40.32, pb: 4.32, de: 38.32, roe: 15.6, sector: "Industrials" },
+            { ticker: "HMSO.L", name: "Hammerson", pe: 28.32, pb: 0.43, de: 98.32, roe: 1.8, sector: "Real Estate" },
+            { ticker: "HRI.L", name: "Harbour Energy", pe: 7.32, pb: 0.83, de: 88.32, roe: 14.5, sector: "Energy" },
+            { ticker: "HSBA.L", name: "HSBC Holdings", pe: 8.32, pb: 0.63, de: 140.32, roe: 8.1, sector: "Financials" },
+            { ticker: "HSDL.L", name: "Herald Investment Trust", pe: 26.32, pb: 1.33, de: 3.32, roe: 9.2, sector: "Financials" },
+            { ticker: "HSTN.L", name: "Hostelworld Group", pe: 15.32, pb: 1.83, de: 105.32, roe: 10.1, sector: "Consumer Discretionary" },
+            { ticker: "HSX.L", name: "Hiscox", pe: 13.32, pb: 1.43, de: 28.32, roe: 11.2, sector: "Financials" },
+            { ticker: "HTG.L", name: "Hunting", pe: 10.32, pb: 0.73, de: 48.32, roe: -4.3, sector: "Energy" },
+            { ticker: "IAG.L", name: "International Airlines Group", pe: 9.32, pb: 1.93, de: 145.32, roe: 30.2, sector: "Consumer Discretionary" },
+            { ticker: "IBST.L", name: "Ibstock", pe: 11.32, pb: 1.13, de: 38.32, roe: 10.8, sector: "Industrials" },
+            { ticker: "ICP.L", name: "Intermediate Capital Group", pe: 12.32, pb: 1.53, de: 128.32, roe: 13.9, sector: "Financials" },
+            { ticker: "IHG.L", name: "InterContinental Hotels Group", pe: 24.32, pb: 4.43, de: 135.32, roe: 85.1, sector: "Consumer Discretionary" },
+            { ticker: "III.L", name: "3i Group", pe: 8.32, pb: 1.13, de: 15.32, roe: 15.2, sector: "Financials" },
+            { ticker: "IMB.L", name: "Imperial Brands", pe: 7.32, pb: 2.83, de: 142.32, roe: -40.1, sector: "Consumer Staples" },
+            { ticker: "INF.L", name: "Informa", pe: 21.32, pb: 1.33, de: 68.32, roe: 6.2, sector: "Consumer Discretionary" },
+            { ticker: "INPP.L", name: "International Public Partnerships", pe: 17.32, pb: 1.03, de: 38.32, roe: 6.8, sector: "Financials" },
+            { ticker: "INTU.L", name: "Intu Properties", pe: 33.32, pb: 0.33, de: 118.32, roe: -10.2, sector: "Real Estate" },
+            { ticker: "INVP.L", name: "Investec", pe: 6.32, pb: 0.73, de: 135.32, roe: 11.8, sector: "Financials" },
+            { ticker: "IPO.L", name: "IP Group", pe: 43.32, pb: 0.63, de: 18.32, roe: -5.1, sector: "Financials" },
+            { ticker: "ITRK.L", name: "Intertek Group", pe: 27.32, pb: 4.13, de: 88.32, roe: 32.1, sector: "Industrials" },
+            { ticker: "ITV.L", name: "ITV", pe: 7.32, pb: 1.53, de: 108.32, roe: 25.1, sector: "Consumer Discretionary" },
+            { ticker: "JD.L", name: "JD Sports Fashion", pe: 22.32, pb: 3.83, de: 58.32, roe: 20.3, sector: "Consumer Discretionary" },
+            { ticker: "JDW.L", name: "J D Wetherspoon", pe: 25.32, pb: 4.03, de: 125.32, roe: 15.8, sector: "Consumer Discretionary" },
+            { ticker: "JET.L", name: "Just Eat Takeaway.com", pe: 41.32, pb: 2.53, de: 25.32, roe: -8.2, sector: "Technology" },
+            { ticker: "JII.L", name: "JPMorgan Indian Investment Trust", pe: 28.32, pb: 1.43, de: 2.32, roe: 9.9, sector: "Financials" },
+            { ticker: "JLEN.L", name: "JLEN Environmental Assets Group", pe: 16.32, pb: 1.03, de: 35.32, roe: 7.1, sector: "Financials" },
+            { ticker: "JMAT.L", name: "Johnson Matthey", pe: 14.32, pb: 1.83, de: 65.32, roe: 13.8, sector: "Basic Materials" },
+            { ticker: "JMG.L", name: "JPMorgan Emerging Markets Inv Tst", pe: 18.32, pb: 1.13, de: 4.32, roe: 8.5, sector: "Financials" },
+            { ticker: "JPM.L", name: "JPMorgan Chase & Co", pe: 11.32, pb: 1.63, de: 140.32, roe: 14.9, sector: "Financials" },
+            { ticker: "JUP.L", name: "Jupiter Fund Management", pe: 10.32, pb: 1.33, de: 8.32, roe: 15.2, sector: "Financials" },
+            { ticker: "KGF.L", name: "Kingfisher", pe: 9.32, pb: 0.93, de: 45.32, roe: 9.8, sector: "Consumer Discretionary" },
+            { ticker: "KIE.L", name: "Kier Group", pe: 6.32, pb: 0.63, de: 138.32, roe: -30.1, sector: "Industrials" },
+            { ticker: "LAND.L", name: "Land Securities Group", pe: 26.32, pb: 0.53, de: 75.32, roe: 2.5, sector: "Real Estate" },
+            { ticker: "LGEN.L", name: "Legal & General Group", pe: 8.32, pb: 1.43, de: 142.32, roe: 18.9, sector: "Financials" },
+            { ticker: "LLOY.L", name: "Lloyds Banking Group", pe: 7.32, pb: 0.73, de: 148.32, roe: 10.1, sector: "Financials" },
+            { ticker: "LMP.L", name: "LondonMetric Property", pe: 24.32, pb: 1.23, de: 45.32, roe: 5.9, sector: "Real Estate" },
+            { ticker: "LSE.L", name: "London Stock Exchange Group", pe: 38.32, pb: 3.53, de: 35.32, roe: 12.3, sector: "Financials" },
+            { ticker: "LSL.L", name: "LSL Property Services", pe: 9.32, pb: 1.03, de: 25.32, roe: 11.5, sector: "Financials" },
+            { ticker: "MAB.L", name: "Mitchells & Butlers", pe: 13.32, pb: 0.83, de: 115.32, roe: 6.2, sector: "Consumer Discretionary" },
+            { ticker: "MARS.L", name: "Marston's", pe: 11.32, pb: 0.73, de: 135.32, roe: 5.8, sector: "Consumer Discretionary" },
+            { ticker: "MCRO.L", name: "Micro Focus International", pe: 5.32, pb: 0.53, de: 125.32, roe: -9.8, sector: "Technology" },
+            { ticker: "MERL.L", name: "Merlin Entertainments", pe: 23.32, pb: 2.83, de: 95.32, roe: 10.2, sector: "Consumer Discretionary" },
+            { ticker: "MKS.L", name: "Marks & Spencer Group", pe: 12.32, pb: 1.13, de: 85.32, roe: 8.1, sector: "Consumer Discretionary" },
+            { ticker: "MNDI.L", name: "Mondi", pe: 11.32, pb: 1.53, de: 55.32, roe: 15.1, sector: "Basic Materials" },
+            { ticker: "MNKS.L", name: "Monks Investment Trust", pe: 24.32, pb: 1.23, de: 6.32, roe: 7.2, sector: "Financials" },
+            { ticker: "MRO.L", name: "Melrose Industries", pe: 19.32, pb: 1.33, de: 95.32, roe: 4.8, sector: "Industrials" },
+            { ticker: "MRW.L", name: "Morrisons", pe: 14.32, pb: 1.03, de: 75.32, roe: 7.5, sector: "Consumer Staples" },
+            { ticker: "MSLH.L", name: "Marshalls", pe: 18.32, pb: 2.13, de: 25.32, roe: 13.2, sector: "Industrials" },
+            { ticker: "MTO.L", name: "Mitie Group", pe: 10.32, pb: 2.53, de: 115.32, roe: 35.1, sector: "Industrials" },
+            { ticker: "MYI.L", name: "Murray International Trust", pe: 15.32, pb: 1.03, de: 10.32, roe: 9.1, sector: "Financials" },
+            { ticker: "N91.L", name: "Ninety One", pe: 13.32, pb: 2.83, de: 5.32, roe: 25.4, sector: "Financials" },
+            { ticker: "NEX.L", name: "NEX Group", pe: 22.32, pb: 3.13, de: 45.32, roe: 16.8, sector: "Financials" },
+            { ticker: "NG.L", name: "National Grid", pe: 16.32, pb: 1.83, de: 125.32, roe: 11.2, sector: "Utilities" },
+            { ticker: "NMC.L", name: "NMC Health", pe: 18.32, pb: 2.53, de: 85.32, roe: 14.8, sector: "Healthcare" },
+            { ticker: "NXT.L", name: "Next", pe: 15.32, pb: 4.33, de: 105.32, roe: 55.1, sector: "Consumer Discretionary" },
+            { ticker: "OCDO.L", name: "Ocado Group", pe: 44.32, pb: 4.43, de: 75.32, roe: -20.3, sector: "Consumer Discretionary" },
+            { ticker: "OML.L", name: "Old Mutual", pe: 8.32, pb: 0.93, de: 135.32, roe: 10.5, sector: "Financials" },
+            { ticker: "PAGE.L", name: "PageGroup", pe: 19.32, pb: 3.53, de: 15.32, roe: 21.2, sector: "Industrials" },
+            { ticker: "PAY.L", name: "PayPoint", pe: 17.32, pb: 2.83, de: 25.32, roe: 18.9, sector: "Financials" },
+            { ticker: "PCT.L", name: "Polar Capital Technology Trust", pe: 30.32, pb: 1.53, de: 2.32, roe: 9.8, sector: "Financials" },
+            { ticker: "PFC.L", name: "Petrofac", pe: 7.32, pb: 1.83, de: 145.32, roe: -18.1, sector: "Energy" },
+            { ticker: "PFG.L", name: "Provident Financial", pe: 6.32, pb: 0.83, de: 125.32, roe: 12.3, sector: "Financials" },
+            { ticker: "PHNX.L", name: "Phoenix Group Holdings", pe: 9.32, pb: 1.13, de: 140.32, roe: 15.1, sector: "Financials" },
+            { ticker: "PHP.L", name: "Primary Health Properties", pe: 27.32, pb: 1.23, de: 55.32, roe: 5.2, sector: "Real Estate" },
+            { ticker: "PLP.L", name: "Polypipe Group", pe: 16.32, pb: 2.33, de: 65.32, roe: 15.8, sector: "Industrials" },
+            { ticker: "PNN.L", name: "Pennon Group", pe: 21.32, pb: 1.93, de: 115.32, roe: 9.2, sector: "Utilities" },
+            { ticker: "POLY.L", name: "Polymetal International", pe: 8.32, pb: 2.13, de: 45.32, roe: 28.1, sector: "Basic Materials" },
+            { ticker: "PPB.L", name: "Paddy Power Betfair", pe: 25.32, pb: 3.23, de: 75.32, roe: 12.8, sector: "Consumer Discretionary" },
+            { ticker: "PRU.L", name: "Prudential", pe: 10.32, pb: 1.53, de: 135.32, roe: 14.9, sector: "Financials" },
+            { ticker: "PSN.L", name: "Persimmon", pe: 9.32, pb: 1.23, de: 1.32, roe: 18.1, sector: "Consumer Discretionary" },
+            { ticker: "PSON.L", name: "Pearson", pe: 20.32, pb: 1.43, de: 35.32, roe: 7.5, sector: "Consumer Discretionary" },
+            { ticker: "PTEC.L", name: "Playtech", pe: 15.32, pb: 1.13, de: 75.32, roe: 6.8, sector: "Technology" },
+            { ticker: "QQ.L", name: "QinetiQ Group", pe: 18.32, pb: 2.33, de: 45.32, roe: 14.2, sector: "Industrials" },
+            { ticker: "RB.L", name: "Reckitt Benckiser Group", pe: 23.32, pb: 3.83, de: 85.32, roe: 25.1, sector: "Consumer Staples" },
+            { ticker: "RBS.L", name: "NatWest Group", pe: 7.32, pb: 0.63, de: 145.32, roe: 9.2, sector: "Financials" },
+            { ticker: "RCP.L", name: "RIT Capital Partners", pe: 25.32, pb: 1.03, de: 12.32, roe: 8.1, sector: "Financials" },
+            { ticker: "RDSA.L", name: "Royal Dutch Shell", pe: 9.32, pb: 1.13, de: 65.32, roe: 12.8, sector: "Energy" },
+            { ticker: "RDW.L", name: "Redrow", pe: 8.32, pb: 0.93, de: 3.32, roe: 13.1, sector: "Consumer Discretionary" },
+            { ticker: "REL.L", name: "RELX", pe: 26.32, pb: 4.33, de: 105.32, roe: 35.2, sector: "Consumer Discretionary" },
+            { ticker: "RIO.L", name: "Rio Tinto", pe: 7.32, pb: 1.83, de: 25.32, roe: 28.4, sector: "Basic Materials" },
+            { ticker: "RMV.L", name: "Rightmove", pe: 29.32, pb: 4.43, de: 5.32, roe: 55.8, sector: "Technology" },
+            { ticker: "RNK.L", name: "Rank Group", pe: 12.32, pb: 0.83, de: 115.32, roe: 5.9, sector: "Consumer Discretionary" },
+            { ticker: "RNT.L", name: "Renishaw", pe: 28.32, pb: 3.33, de: 1.32, roe: 12.5, sector: "Industrials" },
+            { ticker: "RPC.L", name: "RPC Group", pe: 13.32, pb: 1.83, de: 95.32, roe: 14.1, sector: "Industrials" },
+            { ticker: "RR.L", name: "Rolls-Royce Holdings", pe: 35.32, pb: 4.13, de: 145.32, roe: -25.3, sector: "Industrials" },
+            { ticker: "RSA.L", name: "RSA Insurance Group", pe: 11.32, pb: 1.03, de: 35.32, roe: 9.5, sector: "Financials" },
+            { ticker: "RSE.L", name: "Riverstone Energy", pe: 5.32, pb: 0.53, de: 15.32, roe: -12.1, sector: "Energy" },
+            { ticker: "RTO.L", name: "Rentokil Initial", pe: 30.32, pb: 3.83, de: 95.32, roe: 18.2, sector: "Industrials" },
+            { ticker: "SBRY.L", name: "Sainsbury's", pe: 15.32, pb: 0.83, de: 95.32, roe: 4.9, sector: "Consumer Staples" },
+            { ticker: "SDR.L", name: "Schroders", pe: 14.32, pb: 1.93, de: 10.32, roe: 14.8, sector: "Financials" },
+            { ticker: "SDRC.L", name: "Schroder UK Mid Cap Fund", pe: 17.32, pb: 1.03, de: 8.32, roe: 8.8, sector: "Financials" },
+            { ticker: "SGE.L", name: "Sage Group", pe: 28.32, pb: 3.53, de: 55.32, roe: 20.1, sector: "Technology" },
+            { ticker: "SGRO.L", name: "Segro", pe: 30.32, pb: 1.43, de: 45.32, roe: 6.8, sector: "Real Estate" },
+            { ticker: "SHP.L", name: "Shaftesbury", pe: 33.32, pb: 0.63, de: 65.32, roe: 2.1, sector: "Real Estate" },
+            { ticker: "SJP.L", name: "St. James's Place", pe: 20.32, pb: 3.33, de: 15.32, roe: 30.1, sector: "Financials" },
+            { ticker: "SL.L", name: "Standard Life Aberdeen", pe: 10.32, pb: 1.13, de: 25.32, roe: 9.8, sector: "Financials" },
+            { ticker: "SMDS.L", name: "DS Smith", pe: 12.32, pb: 1.53, de: 75.32, roe: 13.5, sector: "Industrials" },
+            { ticker: "SMIN.L", name: "Smiths Group", pe: 17.32, pb: 2.03, de: 65.32, roe: 12.1, sector: "Industrials" },
+            { ticker: "SMT.L", name: "Scottish Mortgage Investment Trust", pe: 35.32, pb: 1.83, de: 12.32, roe: 10.5, sector: "Financials" },
+            { ticker: "SN.L", name: "Smith & Nephew", pe: 21.32, pb: 2.53, de: 55.32, roe: 12.8, sector: "Healthcare" },
+            { ticker: "SNR.L", name: "Senior", pe: 15.32, pb: 1.33, de: 75.32, roe: 8.2, sector: "Industrials" },
+            { ticker: "SOPH.L", name: "Sophos Group", pe: 29.32, pb: 4.03, de: 95.32, roe: 15.9, sector: "Technology" },
+            { ticker: "SPX.L", name: "Spirax-Sarco Engineering", pe: 38.32, pb: 4.23, de: 35.32, roe: 22.1, sector: "Industrials" },
+            { ticker: "SRI.L", name: "abrdn Equity Income Trust", pe: 16.32, pb: 0.93, de: 9.32, roe: 8.2, sector: "Financials" },
+            { ticker: "SSE.L", name: "SSE", pe: 13.32, pb: 1.53, de: 115.32, roe: 11.8, sector: "Utilities" },
+            { ticker: "STAN.L", name: "Standard Chartered", pe: 7.32, pb: 0.53, de: 142.32, roe: 7.5, sector: "Financials" },
+            { ticker: "STJ.L", name: "St. James's Place", pe: 20.32, pb: 3.33, de: 15.32, roe: 30.1, sector: "Financials" },
+            { ticker: "SVS.L", name: "Savills", pe: 18.32, pb: 2.23, de: 25.32, roe: 14.2, sector: "Real Estate" },
+            { ticker: "SVT.L", name: "Severn Trent", pe: 22.32, pb: 2.03, de: 125.32, roe: 9.5, sector: "Utilities" },
+            { ticker: "SYNT.L", name: "Synthomer", pe: 9.32, pb: 1.23, de: 85.32, roe: 14.8, sector: "Basic Materials" },
+            { ticker: "TALK.L", name: "TalkTalk Telecom Group", pe: 14.32, pb: 1.83, de: 135.32, roe: 10.1, sector: "Telecommunications" },
+            { ticker: "TATE.L", name: "Tate & Lyle", pe: 16.32, pb: 2.33, de: 65.32, roe: 15.2, sector: "Consumer Staples" },
+            { ticker: "TBCG.L", name: "TBC Bank Group", pe: 6.32, pb: 1.33, de: 125.32, roe: 22.3, sector: "Financials" },
+            { ticker: "TCG.L", name: "Thomas Cook Group", pe: 5.32, pb: 0.43, de: 148.32, roe: -25.1, sector: "Consumer Discretionary" },
+            { ticker: "TCS.L", name: "TCS Group Holding", pe: 10.32, pb: 2.33, de: 115.32, roe: 45.2, sector: "Financials" },
+            { ticker: "TET.L", name: "Treatt", pe: 27.32, pb: 3.03, de: 15.32, roe: 12.8, sector: "Consumer Staples" },
+            { ticker: "TGA.L", name: "Thales", pe: 20.32, pb: 2.83, de: 45.32, roe: 15.1, sector: "Industrials" },
+            { ticker: "THRG.L", name: "The Renewables Infrastructure Group", pe: 18.32, pb: 1.13, de: 35.32, roe: 7.2, sector: "Financials" },
+            { ticker: "TLW.L", name: "Tullow Oil", pe: 5.32, pb: 1.53, de: 142.32, roe: -30.5, sector: "Energy" },
+            { ticker: "TRIG.L", name: "The Renewables Infrastructure Group", pe: 18.32, pb: 1.13, de: 35.32, roe: 7.2, sector: "Financials" },
+            { ticker: "TSCO.L", name: "Tesco", pe: 13.32, pb: 1.23, de: 85.32, roe: 8.9, sector: "Consumer Staples" },
+            { ticker: "TUI.L", name: "TUI", pe: 10.32, pb: 2.23, de: 145.32, roe: 25.1, sector: "Consumer Discretionary" },
+            { ticker: "ULE.L", name: "Ultra Electronics Holdings", pe: 21.32, pb: 2.83, de: 55.32, roe: 15.3, sector: "Industrials" },
+            { ticker: "ULVR.L", name: "Unilever", pe: 20.32, pb: 4.03, de: 95.32, roe: 38.1, sector: "Consumer Staples" },
+            { ticker: "UTG.L", name: "Unite Group", pe: 25.32, pb: 1.33, de: 55.32, roe: 5.8, sector: "Real Estate" },
+            { ticker: "UU.L", name: "United Utilities Group", pe: 19.32, pb: 1.83, de: 115.32, roe: 9.8, sector: "Utilities" },
+            { ticker: "VE.L", name: "Vedanta Resources", pe: 6.32, pb: 1.53, de: 105.32, roe: 25.4, sector: "Basic Materials" },
+            { ticker: "VOD.L", name: "Vodafone Group", pe: 12.32, pb: 0.83, de: 105.32, roe: 6.5, sector: "Telecommunications" },
+            { ticker: "VOL.L", name: "Volvo Group", pe: 13.32, pb: 2.53, de: 95.32, roe: 20.1, sector: "Industrials" },
+            { ticker: "VTY.L", name: "Vistry Group", pe: 7.32, pb: 0.83, de: 15.32, roe: 12.5, sector: "Consumer Discretionary" },
+            { ticker: "WEIR.L", name: "Weir Group", pe: 19.32, pb: 2.33, de: 65.32, roe: 13.1, sector: "Industrials" },
+            { ticker: "WG.L", name: "Wood Group (John)", pe: 10.32, pb: 0.93, de: 125.32, roe: -6.8, sector: "Energy" },
+            { ticker: "WHG.L", name: "William Hill", pe: 14.32, pb: 2.03, de: 135.32, roe: 12.9, sector: "Consumer Discretionary" },
+            { ticker: "WIZZ.L", name: "Wizz Air Holdings", pe: 18.32, pb: 2.83, de: 115.32, roe: 18.2, sector: "Consumer Discretionary" },
+            { ticker: "WKP.L", name: "Workspace Group", pe: 23.32, pb: 0.73, de: 75.32, roe: 3.5, sector: "Real Estate" },
+            { ticker: "WPP.L", name: "WPP", pe: 9.32, pb: 1.53, de: 115.32, roe: 15.8, sector: "Consumer Discretionary" },
+            { ticker: "WTB.L", name: "Whitbread", pe: 20.32, pb: 2.33, de: 75.32, roe: 11.2, sector: "Consumer Discretionary" },
+            { ticker: "WWH.L", name: "Worldwide Healthcare Trust", pe: 27.32, pb: 1.43, de: 3.32, roe: 9.5, sector: "Financials" },
+            { ticker: "XPS.L", name: "XPS Pensions Group", pe: 16.32, pb: 2.53, de: 65.32, roe: 28.1, sector: "Financials" },
+            { ticker: "ZPG.L", name: "ZPG", pe: 32.32, pb: 3.03, de: 25.32, roe: 9.9, sector: "Technology" }
+        ];
+
+        // --- GLOBAL STATE ---
+        let pyodide = null;
+        let currentScreenedList = [];
+        let currentSort = { key: 'ticker', direction: 'asc' };
+
+        // --- DOM ELEMENTS ---
+        const runButton = document.getElementById('run-screener');
+        const runButtonText = document.getElementById('run-screener-text');
+        const exportButton = document.getElementById('export-csv');
+        const loader = document.getElementById('loader');
+        const initialMessage = document.getElementById('initial-message');
+        const resultsOutput = document.getElementById('results-output');
+        const resultsSummary = document.getElementById('results-summary');
+        const resultsTableBody = document.getElementById('results-table-body');
+        const sortableHeaders = document.querySelectorAll('.sortable-header');
+        const sectorSelectBox = document.getElementById('sector-select-box');
+        const sectorSelectText = document.getElementById('sector-select-text');
+        const sectorCheckboxesContainer = document.getElementById('sector-checkboxes');
+        const chartContainer = document.getElementById('chart-container');
+        const chartMetricSelect = document.getElementById('chart-metric');
+        const pythonChartContainer = document.getElementById('python-chart-container');
+
+        // --- PYTHON CHART GENERATION ---
+        async function generatePythonChart() {
+            if (!pyodide || currentScreenedList.length === 0) {
+                chartContainer.classList.add('hidden');
+                return;
+            }
+
+            chartContainer.classList.remove('hidden');
+            pythonChartContainer.innerHTML = `<div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-600 h-12 w-12"></div>`;
+
+            const metric = chartMetricSelect.value;
+            const selectedSectors = Array.from(document.querySelectorAll('.sector-checkbox:checked')).map(cb => cb.value);
+
+            pyodide.globals.set("screened_data_json", JSON.stringify(currentScreenedList));
+            pyodide.globals.set("full_data_json", JSON.stringify(FTSE250_DATA));
+            pyodide.globals.set("metric", metric);
+            pyodide.globals.set("selected_sectors", selectedSectors);
+
+            try {
+                // UPDATED: Python script with new styling to match the website
+                let base64Image = await pyodide.runPythonAsync(`
+                    import json
+                    import pandas as pd
+                    import matplotlib.pyplot as plt
+                    import io
+                    import base64
+                    import numpy as np
+
+                    # --- Custom styling to match website theme ---
+                    plt.rcParams.update({
+                        'font.family': 'sans-serif',
+                        'figure.facecolor': '#2c3241',
+                        'axes.facecolor': '#2c3241',
+                        'text.color': '#e0e0e0',
+                        'axes.labelcolor': '#e0e0e0',
+                        'xtick.color': '#e0e0e0',
+                        'ytick.color': '#e0e0e0',
+                    })
+
+                    screened_data_js = globals().get("screened_data_json")
+                    full_data_js = globals().get("full_data_json")
+                    metric = globals().get("metric")
+                    selected_sectors = globals().get("selected_sectors").to_py()
+
+                    screened_df = pd.DataFrame(json.loads(screened_data_js))
+                    full_df = pd.DataFrame(json.loads(full_data_js))
+                    
+                    metric_labels = {'pe': 'P/E Ratio', 'pb': 'P/B Ratio', 'de': 'Debt/Equity (%)', 'roe': 'ROE (%)'}
+                    
+                    title_text = f'{metric_labels.get(metric, "")} Comparison'
+                    if len(selected_sectors) == 1:
+                        title_text += f' for {selected_sectors[0]} Sector'
+                    elif len(selected_sectors) > 1:
+                        title_text += f' for {len(selected_sectors)} Selected Sectors'
+                    else:
+                        title_text += ' for FTSE 250'
+
+                    if len(selected_sectors) > 0:
+                        industry_df = full_df[full_df['sector'].isin(selected_sectors)]
+                    else:
+                        industry_df = full_df
+                    
+                    average_value = industry_df[metric].mean()
+
+                    # NEW: Wider figure size
+                    fig, ax = plt.subplots(figsize=(15, 6))
+                    
+                    colors = plt.cm.get_cmap('tab10', len(screened_df))
+                    bars = ax.bar(screened_df['ticker'], screened_df[metric], color=[colors(i) for i in range(len(screened_df))])
+
+                    # NEW: Add labels on top of bars
+                    ax.bar_label(bars, fmt='%.2f', padding=3, color='#e0e0e0', fontsize=9)
+
+                    if average_value is not None and not np.isnan(average_value):
+                        ax.axhline(y=average_value, color='#ff6b6b', linestyle='--', linewidth=2, label=f'Industry Average: {average_value:.2f}')
+
+                    ax.set_title(title_text, fontsize=16, pad=20, color='#ffffff')
+                    ax.set_ylabel(metric_labels.get(metric, ''), fontsize=12)
+                    ax.tick_params(axis='x', rotation=45, labelsize=10)
+                    
+                    # NEW: White gridlines and removed outline
+                    ax.grid(axis='y', linestyle='--', color='#e0e0e0', alpha=0.3)
+                    for spine in ax.spines.values():
+                        spine.set_visible(False)
+
+                    ax.legend(facecolor='#1a1e2b', edgecolor='none')
+                    
+                    fig.tight_layout()
+
+                    buf = io.BytesIO()
+                    fig.savefig(buf, format='png', facecolor=fig.get_facecolor())
+                    buf.seek(0)
+                    
+                    img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+                    buf.close()
+                    plt.close(fig)
+                    img_base64
+                `);
+
+                pythonChartContainer.innerHTML = `<img src="data:image/png;base64,${base64Image}" class="w-full h-full object-contain" alt="Matplotlib chart" />`;
+            } catch (error) {
+                console.error("Python chart generation failed:", error);
+                pythonChartContainer.innerHTML = `<p class="text-red-400">Error generating chart.</p>`;
+            }
+        }
+
+        // --- REGULAR JS FUNCTIONS ---
+        function updateSectorSelectBoxText() {
+            const selectedSectors = Array.from(document.querySelectorAll('.sector-checkbox:checked')).map(cb => cb.value);
+            if (selectedSectors.length === 0) {
+                sectorSelectText.textContent = 'Select sectors...';
+            } else if (selectedSectors.length <= 2) {
+                sectorSelectText.textContent = selectedSectors.join(', ');
+            } else {
+                sectorSelectText.textContent = `${selectedSectors.length} sectors selected`;
+            }
+        }
+
+        function setupSectorFilter() {
+            const sectors = [...new Set(FTSE250_DATA.map(stock => stock.sector))].sort();
+            sectors.forEach(sector => {
+                const label = document.createElement('label');
+                label.innerHTML = `<input type="checkbox" class="sector-checkbox" value="${sector}" /> ${sector}`;
+                sectorCheckboxesContainer.appendChild(label);
+            });
+        }
+
+        function updateSortIcons() {
+            sortableHeaders.forEach(header => {
+                const iconContainer = header.querySelector('span:last-child');
+                const key = header.getAttribute('data-sort-key');
+                if (key === currentSort.key) {
+                    iconContainer.innerHTML = currentSort.direction === 'asc' ? '▲' : '▼';
+                } else {
+                    iconContainer.innerHTML = '';
+                }
+            });
+        }
+
+        function sortAndDisplayResults() {
+            const key = currentSort.key;
+            const direction = currentSort.direction;
+            const sortedList = [...currentScreenedList].sort((a, b) => {
+                if (typeof a[key] === 'string') {
+                    return direction === 'asc' ? a[key].localeCompare(b[key]) : b[key].localeCompare(a[key]);
+                } else {
+                    return direction === 'asc' ? a[key] - b[key] : b[key] - a[key];
+                }
+            });
+            displayResults(sortedList);
+            updateSortIcons();
+            generatePythonChart();
+        }
+
+        function displayResults(stockList) {
+            resultsSummary.textContent = stockList.length > 0 
+                ? `Found ${stockList.length} stocks that meet your criteria:`
+                : "No stocks from the full FTSE 250 list currently meet the specified criteria.";
+            
+            const tableRowsHTML = stockList.map(stock => `
+                <tr class="table-row-hover">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">${stock.ticker}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300">${stock.name}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300 text-right">${Number(stock.pe).toFixed(2)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300 text-right">${Number(stock.pb).toFixed(2)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300 text-right">${Number(stock.de).toFixed(2)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300 text-right">${Number(stock.roe).toFixed(2)}</td>
+                </tr>
+            `).join('');
+            
+            resultsTableBody.innerHTML = tableRowsHTML;
+        }
+        
+        function exportToCsv() {
+            if (currentScreenedList.length === 0) return;
+            const headers = ['Ticker', 'Company Name', 'P/E Ratio', 'P/B Ratio', 'Debt/Equity (%)', 'ROE (%)', 'Sector'];
+            const csvRows = [headers.join(',')];
+            currentScreenedList.forEach(stock => {
+                const row = [stock.ticker, `"${stock.name}"`, stock.pe.toFixed(2), stock.pb.toFixed(2), stock.de.toFixed(2), stock.roe.toFixed(2), stock.sector];
+                csvRows.push(row.join(','));
+            });
+            const csvString = csvRows.join('\n');
+            const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'ftse250_screener_results.csv');
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function runScreener() {
+            loader.classList.remove('hidden');
+            initialMessage.classList.add('hidden');
+            resultsOutput.classList.add('hidden');
+            exportButton.classList.add('hidden');
+            chartContainer.classList.add('hidden');
+
+            const maxPe = parseFloat(document.getElementById('pe-ratio').value);
+            const maxPb = parseFloat(document.getElementById('pb-ratio').value);
+            const maxDe = parseFloat(document.getElementById('de-ratio').value);
+            const minRoe = parseFloat(document.getElementById('roe').value);
+            const selectedSectors = Array.from(document.querySelectorAll('.sector-checkbox:checked')).map(cb => cb.value);
+
+            setTimeout(() => {
+                currentScreenedList = FTSE250_DATA.filter(stock => {
+                    const sectorMatch = selectedSectors.length === 0 || selectedSectors.includes(stock.sector);
+                    return stock.pe < maxPe && stock.pb < maxPb && stock.de < maxDe && stock.roe > minRoe && sectorMatch;
+                });
+                
+                currentSort = { key: 'ticker', direction: 'asc' };
+                sortAndDisplayResults();
+                
+                loader.classList.add('hidden');
+                resultsOutput.classList.remove('hidden');
+                
+                if (currentScreenedList.length > 0) {
+                    exportButton.classList.remove('hidden');
+                }
+            }, 500);
+        }
+
+        function handleSortClick(event) {
+            const newKey = event.currentTarget.getAttribute('data-sort-key');
+            if (currentSort.key === newKey) {
+                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.key = newKey;
+                currentSort.direction = 'asc';
+            }
+            sortAndDisplayResults();
+        }
+
+        // --- INITIALIZATION & EVENT LISTENERS ---
+        async function main() {
+            pyodide = await loadPyodide();
+            await pyodide.loadPackage(["pandas", "matplotlib"]);
+            runButtonText.textContent = 'Run Screener';
+            runButton.disabled = false;
+            console.log("Pyodide and packages loaded.");
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            main(); 
+            setupSectorFilter();
+
+            runButton.addEventListener('click', runScreener);
+            exportButton.addEventListener('click', exportToCsv);
+            chartMetricSelect.addEventListener('change', generatePythonChart);
+            
+            sortableHeaders.forEach(header => header.addEventListener('click', handleSortClick));
+
+            sectorSelectBox.addEventListener('click', () => sectorCheckboxesContainer.classList.toggle('hidden'));
+            
+            sectorCheckboxesContainer.addEventListener('change', updateSectorSelectBoxText);
+
+            document.addEventListener('click', (event) => {
+                if (!sectorSelectBox.contains(event.target) && !sectorCheckboxesContainer.contains(event.target)) {
+                    sectorCheckboxesContainer.classList.add('hidden');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
+
